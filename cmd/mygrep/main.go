@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -37,13 +38,14 @@ func main() {
 }
 
 func matchLine(line []byte, pattern string) (bool, error) {
-	if utf8.RuneCountInString(pattern) != 1 {
+	var ok bool
+	if strings.Contains(pattern, "\\d") {
+		ok = bytes.ContainsAny(line, "0123456789")
+	} else if utf8.RuneCountInString(pattern) == 1 {
+		ok = bytes.ContainsAny(line, pattern)
+	} else {
 		return false, fmt.Errorf("unsupported pattern: %q", pattern)
 	}
-
-	var ok bool
-
-	ok = bytes.ContainsAny(line, pattern)
 
 	return ok, nil
 }
