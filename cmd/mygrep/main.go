@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
+	//	"strings"
 	"unicode/utf8"
 )
 
@@ -39,9 +39,20 @@ func main() {
 
 func matchLine(line []byte, pattern string) (bool, error) {
 	var ok bool
-	if strings.Contains(pattern, "\\d") {
-		ok = bytes.ContainsAny(line, "0123456789")
-	} else if utf8.RuneCountInString(pattern) == 1 {
+	plen := utf8.RuneCountInString(pattern)
+	if plen == 2 {
+		switch pattern[1] {
+		case 'w':
+			ok = bytes.ContainsFunc(bytes.ToLower(line), func(r rune) bool {
+				return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+			})
+			break
+		case 'd':
+			ok = bytes.ContainsAny(line, "0123456789")
+			break
+
+		}
+	} else if plen == 1 {
 		ok = bytes.ContainsAny(line, pattern)
 	} else {
 		return false, fmt.Errorf("unsupported pattern: %q", pattern)
