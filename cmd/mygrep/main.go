@@ -57,8 +57,13 @@ func matchLine(line []byte, pattern string) (bool, error) {
 
 		}
 	} else if pattern[0] == '[' && pattern[len(pattern)-1] == ']' {
-		group := pattern[1 : len(pattern)-1]
-		ok = bytes.ContainsAny(line, group)
+		if pattern[1] == '^' {
+			group := pattern[2 : len(pattern)-1]
+			ok = !bytes.ContainsAny(line, group)
+		} else {
+			group := pattern[1 : len(pattern)-1]
+			ok = bytes.ContainsAny(line, group)
+		}
 	} else {
 		return false, fmt.Errorf("unsupported pattern: %q", pattern)
 	}
