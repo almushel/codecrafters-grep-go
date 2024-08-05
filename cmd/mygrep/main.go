@@ -106,6 +106,10 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	var ok bool = false
 	var err error = nil
 
+	if pattern[0] == '^' {
+		return matchNext(line, pattern[1:])
+	}
+
 	for _line := line; len(_line) > 0; _line = _line[1:] {
 		ok, err = matchNext(_line, pattern)
 		if ok || err != nil {
