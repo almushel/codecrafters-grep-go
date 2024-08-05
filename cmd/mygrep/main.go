@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	//	"strings"
-	"unicode/utf8"
+	"strings"
+	//"strings"
+	//"unicode/utf8"
 )
 
 // Usage: echo <input_text> | your_program.sh -E <pattern>
@@ -38,34 +38,79 @@ func main() {
 	// default exit code is 0 which means success
 }
 
-func matchLine(line []byte, pattern string) (bool, error) {
-	var ok bool
-	plen := utf8.RuneCountInString(pattern)
+func matchNext(line []byte, pattern string) (bool, error) {
+	if len(line) == 0 {
+		if len(pattern) == 0 {
+			return true, nil
+		}
 
-	if plen == 1 {
-		ok = bytes.ContainsAny(line, pattern)
-	} else if plen == 2 {
+		return false, nil
+	}
+
+	if len(pattern) == 0 {
+		return true, nil
+	}
+
+	var ok bool = false
+	var err error = nil
+
+	switch pattern[0] {
+	case '\\':
 		switch pattern[1] {
 		case 'w':
-			ok = bytes.ContainsFunc(bytes.ToLower(line), func(r rune) bool {
-				return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
-			})
+			_line := bytes.ToLower(line)
+			ok = (_line[0] >= 'a' && _line[0] <= 'z') || (_line[0] >= '0' && _line[0] <= '9')
 			break
 		case 'd':
-			ok = bytes.ContainsAny(line, "0123456789")
+			ok = (line[0] >= '0' && line[0] <= '9')
 			break
+		case '\\':
+			ok = (line[0] == pattern[1])
+			break
+		default:
+			return false, fmt.Errorf("Invalid escape sequence %s", pattern[:2])
+		}
 
+		if ok {
+			ok, err = matchNext(line[1:], pattern[2:])
 		}
-	} else if pattern[0] == '[' && pattern[len(pattern)-1] == ']' {
-		if pattern[1] == '^' {
-			group := pattern[2 : len(pattern)-1]
-			ok = !bytes.ContainsAny(line, group)
+		break
+	case '[':
+		end := strings.IndexRune(pattern, ']')
+		if end == -1 {
+			return false, fmt.Errorf("Invalid group %s", pattern)
+		}
+
+		group := pattern[1:end]
+		if group[0] == '^' {
+			ok = !strings.ContainsRune(group[1:], rune(line[0]))
 		} else {
-			group := pattern[1 : len(pattern)-1]
-			ok = bytes.ContainsAny(line, group)
+			ok = strings.ContainsRune(group, rune(line[0]))
 		}
-	} else {
-		return false, fmt.Errorf("unsupported pattern: %q", pattern)
+
+		if ok {
+			ok, err = matchNext(line[1:], pattern[end+1:])
+		}
+		break
+	default:
+		if line[0] == pattern[0] {
+			ok, err = matchNext(line[1:], pattern[1:])
+		}
+		break
+	}
+
+	return ok, err
+}
+
+func matchLine(line []byte, pattern string) (bool, error) {
+	var ok bool = false
+	var err error = nil
+
+	for _line := line; len(_line) > 0; _line = _line[1:] {
+		ok, err = matchNext(_line, pattern)
+		if ok || err != nil {
+			break
+		}
 	}
 
 	return ok, nil
