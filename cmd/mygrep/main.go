@@ -39,22 +39,24 @@ func main() {
 }
 
 func matchNext(line []byte, pattern string) (bool, error) {
+	if len(pattern) == 0 {
+		return true, nil
+	}
+
 	if len(line) == 0 {
-		if len(pattern) == 0 {
+		if pattern[0] == '$' {
 			return true, nil
 		}
 
 		return false, nil
 	}
 
-	if len(pattern) == 0 {
-		return true, nil
-	}
-
 	var ok bool = false
 	var err error = nil
 
 	switch pattern[0] {
+	case '$':
+		return false, nil
 	case '\\':
 		switch pattern[1] {
 		case 'w':
