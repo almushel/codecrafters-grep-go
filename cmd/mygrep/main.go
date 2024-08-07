@@ -53,11 +53,15 @@ func matchNext(line []byte, pattern string) (bool, error) {
 
 	var ok bool = false
 	var err error = nil
+	var pNext = 1
+	var lNext = 1
 
 	switch pattern[0] {
 	case '$':
 		return false, nil
 	case '\\':
+		pNext = 2
+
 		switch pattern[1] {
 		case 'w':
 			_line := bytes.ToLower(line)
@@ -73,32 +77,41 @@ func matchNext(line []byte, pattern string) (bool, error) {
 			return false, fmt.Errorf("Invalid escape sequence %s", pattern[:2])
 		}
 
-		if ok {
-			ok, err = matchNext(line[1:], pattern[2:])
-		}
 		break
 	case '[':
 		end := strings.IndexRune(pattern, ']')
 		if end == -1 {
 			return false, fmt.Errorf("Invalid group %s", pattern)
 		}
+		pNext = end + 1
 
-		group := pattern[1:end]
-		if group[0] == '^' {
-			ok = !strings.ContainsRune(group[1:], rune(line[0]))
+		if pattern[1] == '^' {
+			ok = !strings.ContainsRune(pattern[2:end], rune(line[0]))
 		} else {
-			ok = strings.ContainsRune(group, rune(line[0]))
+			ok = strings.ContainsRune(pattern[1:end], rune(line[0]))
 		}
 
-		if ok {
-			ok, err = matchNext(line[1:], pattern[end+1:])
-		}
 		break
 	default:
-		if line[0] == pattern[0] {
-			ok, err = matchNext(line[1:], pattern[1:])
-		}
+		ok = (line[0] == pattern[0])
 		break
+	}
+
+	if ok {
+		if len(pattern) > pNext && pattern[pNext] == '+' {
+			var repeat bool
+			for {
+				repeat, err = matchNext(line[lNext:], pattern)
+				if repeat == true && err == nil {
+					lNext++
+				} else {
+					break
+				}
+			}
+
+			pNext++
+		}
+		ok, err = matchNext(line[lNext:], pattern[pNext:])
 	}
 
 	return ok, err
