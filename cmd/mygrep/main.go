@@ -57,6 +57,9 @@ func matchNext(line []byte, pattern string) (bool, error) {
 	switch pattern[0] {
 	case '$':
 		return false, nil
+	case '.':
+		ok = true
+		break
 	case '\\':
 		pNext = 2
 
@@ -68,11 +71,9 @@ func matchNext(line []byte, pattern string) (bool, error) {
 		case 'd':
 			ok = (line[0] >= '0' && line[0] <= '9')
 			break
-		case '\\':
+		default:
 			ok = (line[0] == pattern[1])
 			break
-		default:
-			return false, fmt.Errorf("Invalid escape sequence %s", pattern[:2])
 		}
 
 		break
