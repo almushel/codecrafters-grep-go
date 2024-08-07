@@ -34,8 +34,6 @@ func main() {
 	if !ok {
 		os.Exit(1)
 	}
-
-	// default exit code is 0 which means success
 }
 
 func matchNext(line []byte, pattern string) (bool, error) {
@@ -97,8 +95,24 @@ func matchNext(line []byte, pattern string) (bool, error) {
 		break
 	}
 
-	if ok {
-		if len(pattern) > pNext && pattern[pNext] == '+' {
+	if err != nil {
+		return false, err
+	}
+
+	if len(pattern) > pNext {
+		switch pattern[pNext] {
+		case '?':
+			if !ok {
+				ok = true
+				lNext = 0
+			}
+			pNext++
+			break
+		case '+':
+			if !ok {
+				break
+			}
+
 			var repeat bool
 			for {
 				repeat, err = matchNext(line[lNext:], pattern)
@@ -110,7 +124,11 @@ func matchNext(line []byte, pattern string) (bool, error) {
 			}
 
 			pNext++
+			break
 		}
+	}
+
+	if ok {
 		ok, err = matchNext(line[lNext:], pattern[pNext:])
 	}
 
