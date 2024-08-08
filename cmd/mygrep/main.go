@@ -34,6 +34,8 @@ func main() {
 	if !ok {
 		os.Exit(1)
 	}
+
+	print(string(line))
 }
 
 func matchNext(line []byte, pattern string) (bool, error) {
@@ -49,8 +51,8 @@ func matchNext(line []byte, pattern string) (bool, error) {
 		return false, nil
 	}
 
-	var ok bool = false
-	var err error = nil
+	var ok bool
+	var err error
 	var pNext = 1
 	var lNext = 1
 
@@ -80,7 +82,7 @@ func matchNext(line []byte, pattern string) (bool, error) {
 	case '[':
 		end := strings.IndexRune(pattern, ']')
 		if end == -1 {
-			return false, fmt.Errorf("Invalid group %s", pattern)
+			return false, fmt.Errorf("Invalid class %s", pattern)
 		}
 		pNext = end + 1
 
@@ -88,6 +90,37 @@ func matchNext(line []byte, pattern string) (bool, error) {
 			ok = !strings.ContainsRune(pattern[2:end], rune(line[0]))
 		} else {
 			ok = strings.ContainsRune(pattern[1:end], rune(line[0]))
+		}
+
+		break
+	case '(':
+		end := strings.IndexRune(pattern, ')')
+		if end == -1 {
+			return false, fmt.Errorf("Invalid group %s", pattern)
+		}
+		pNext = end + 1
+
+		group := pattern[1:end]
+		var start int
+		for i, r := range group {
+			if r == '|' {
+				if (i - start) == 0 {
+					return false, fmt.Errorf("Invalid alternation %s", group)
+				}
+
+				if group[i-1] != '\\' {
+					ok, err = matchNext(line, group[start:i])
+					start = i + 1
+				}
+
+				if ok || err != nil {
+					break
+				}
+			}
+		}
+
+		if !ok {
+			ok, err = matchNext(line, group[start:])
 		}
 
 		break
