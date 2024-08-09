@@ -48,7 +48,7 @@ func getGroup(pattern string, position int) string {
 				if pattern[e] == ')' && pattern[e-1] != '\\' {
 					pos++
 					if pos == position {
-						return pattern[i+1 : e]
+						return pattern[i : e+1]
 					}
 				}
 			}
@@ -58,29 +58,18 @@ func getGroup(pattern string, position int) string {
 	return ""
 }
 
-func matchNext(line []byte, pattern string, l, p int) (bool, error) {
-	if len(pattern) == p {
-		return true, nil
-	}
-
-	if len(line) == l {
-		if pattern[p] == '$' {
-			return true, nil
-		}
-
-		return false, nil
-	}
-
-	var ok bool
+func matchNext(line []byte, pattern string, l, p int) (int, error) {
 	var err error
 	var pNext = 1
-	var lNext = 1
+	var lNext = 0
+
+	//fmt.Printf("%s | %s\n", line[l:], pattern[p:])
 
 	switch pattern[p] {
 	case '$':
-		return false, nil
+		break
 	case '.':
-		ok = true
+		lNext = 1
 		break
 	case '\\':
 		pNext = 2
@@ -88,16 +77,22 @@ func matchNext(line []byte, pattern string, l, p int) (bool, error) {
 		switch pattern[p+1] {
 		case 'w':
 			_line := bytes.ToLower(line)
-			ok = (_line[l] >= 'a' && _line[l] <= 'z') || (_line[l] >= 'l' && _line[l] <= '9')
+			if (_line[l] >= 'a' && _line[l] <= 'z') || (_line[l] >= '0' && _line[l] <= '9') {
+				lNext = 1
+			}
 			break
 		case 'd':
-			ok = (line[l] >= 'l' && line[l] <= '9')
+			if line[l] >= '0' && line[l] <= '9' {
+				lNext = 1
+			}
 			break
 		case '1':
-			ok, err = matchNext(line, getGroup(pattern, 1), l, 0)
+			lNext, err = matchNext(line, getGroup(pattern, 1), l, 0)
 			break
 		default:
-			ok = (line[l] == pattern[p+1])
+			if line[l] == pattern[p+1] {
+				lNext = 1
+			}
 			break
 		}
 
@@ -105,21 +100,23 @@ func matchNext(line []byte, pattern string, l, p int) (bool, error) {
 	case '[':
 		end := strings.IndexRune(pattern[p:], ']')
 		if end == -1 {
-			return false, fmt.Errorf("Invalid class %s", pattern)
+			return 0, fmt.Errorf("Invalid class %s", pattern)
 		}
 		pNext = end + 1
 
 		if pattern[p+1] == '^' {
-			ok = !strings.ContainsRune(pattern[p+2:end], rune(line[l]))
-		} else {
-			ok = strings.ContainsRune(pattern[p+1:end], rune(line[l]))
+			if !strings.ContainsRune(pattern[p+2:p+end], rune(line[l])) {
+				lNext = 1
+			}
+		} else if strings.ContainsRune(pattern[p+1:p+end], rune(line[l])) {
+			lNext = 1
 		}
 
 		break
 	case '(':
 		end := strings.IndexRune(pattern[p:], ')')
 		if end == -1 {
-			return false, fmt.Errorf("Invalid group %s", pattern)
+			return 0, fmt.Errorf("Invalid group %s", pattern)
 		}
 		pNext = end + 1
 
@@ -128,58 +125,53 @@ func matchNext(line []byte, pattern string, l, p int) (bool, error) {
 		for i, r := range group {
 			if r == '|' {
 				if (i - start) == 0 {
-					return false, fmt.Errorf("Invalid alternation %s", group)
+					return 0, fmt.Errorf("Invalid alternation %s", group)
 				}
 
 				if group[i-1] != '\\' {
-					ok, err = matchNext(line, group[start:i], l, 0)
+					lNext, err = matchNext(line, group[start:i], l, 0)
 					start = i + 1
 				}
 
-				if ok || err != nil {
-					// NOTE: This assumes all pattern metacharacters in the group are
-					// one character long
-					// TODO: Calculate correct offset for
-					lNext = i - start
+				if lNext > 0 || err != nil {
 					break
 				}
 			}
 		}
 
-		if !ok {
-			ok, err = matchNext(line, group, l, start)
-			lNext = len(group) - start
+		if lNext == 0 && err == nil {
+			lNext, err = matchNext(line, group, l, start)
 		}
 
 		break
 	default:
-		ok = (line[l] == pattern[p])
+		if line[l] == pattern[p] {
+			lNext = 1
+		}
 		break
 	}
 
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 
+	var optional bool
 	if len(pattern) > p+pNext {
 		switch pattern[p+pNext] {
 		case '?':
-			if !ok {
-				ok = true
-				lNext = 0
-			}
+			optional = true
 			pNext++
 			break
 		case '+':
-			if !ok {
+			if lNext == 0 {
 				break
 			}
 
-			var repeat bool
-			for {
-				repeat, err = matchNext(line, pattern, l+lNext, p)
-				if repeat == true && err == nil {
-					lNext++
+			var repeat int
+			for l+lNext < len(line) {
+				repeat, err = matchNext(line, pattern[p:p+pNext], l+lNext, 0)
+				if repeat > 0 && err == nil {
+					lNext += repeat
 				} else {
 					break
 				}
@@ -190,30 +182,43 @@ func matchNext(line []byte, pattern string, l, p int) (bool, error) {
 		}
 	}
 
-	if ok {
-		ok, err = matchNext(line, pattern, l+lNext, p+pNext)
+	if lNext > 0 || optional {
+		if len(pattern) == p+pNext {
+			return lNext, nil
+		}
+
+		if len(line) == l+lNext {
+			if pattern[p+pNext] == '$' {
+				return lNext, nil
+			}
+
+			return 0, nil
+		}
+
+		matched, err := matchNext(line, pattern, l+lNext, p+pNext)
+		if matched > 0 {
+			return lNext + matched, err
+		}
 	}
 
-	return ok, err
+	return 0, nil
 }
 
 func matchLine(line []byte, pattern string) (bool, error) {
-	var ok bool = false
-	var err error = nil
+	var matched int
+	var err error
 
 	if pattern[0] == '^' {
-		return matchNext(line, pattern, 0, 1)
+		matched, err = matchNext(line, pattern, 0, 1)
+		return matched > 0, err
 	}
 
 	for i := range line {
-		if i > 0 {
-			break
-		}
-		ok, err = matchNext(line, pattern, i, 0)
-		if ok || err != nil {
+		matched, err = matchNext(line, pattern, i, 0)
+		if matched > 0 || err != nil {
 			break
 		}
 	}
 
-	return ok, nil
+	return matched > 0, err
 }
