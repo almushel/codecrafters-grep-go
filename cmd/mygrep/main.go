@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
-	//"strings"
-	//"unicode/utf8"
 )
+
+type grepState struct {
+	groups []string
+}
 
 // Usage: echo <input_text> | your_program.sh -E <pattern>
 func main() {
@@ -38,27 +41,7 @@ func main() {
 	print(string(line))
 }
 
-func getGroup(pattern string, position int) string {
-	// Start at beginning of pattern and identify every group in order
-	// until the position or end of pattern is reached
-	var pos int
-	for i := range pattern {
-		if pattern[i] == '(' && (i == 0 || pattern[i-1] != '\\') {
-			for e := i + 1; e < len(pattern); e++ {
-				if pattern[e] == ')' && pattern[e-1] != '\\' {
-					pos++
-					if pos == position {
-						return pattern[i : e+1]
-					}
-				}
-			}
-		}
-	}
-
-	return ""
-}
-
-func matchNext(line []byte, pattern string, l, p int) (int, error) {
+func (g *grepState) matchNext(line []byte, pattern string, l, p int) (int, error) {
 	var err error
 	var pNext = 1
 	var lNext = 0
@@ -86,13 +69,32 @@ func matchNext(line []byte, pattern string, l, p int) (int, error) {
 				lNext = 1
 			}
 			break
-		case '1':
-			lNext, err = matchNext(line, getGroup(pattern, 1), l, 0)
-			break
 		default:
-			if line[l] == pattern[p+1] {
+			if pattern[p+1] > '0' && pattern[p+1] <= '9' {
+				var end int
+				for end = p + 1; end <= len(pattern); end++ {
+					if !(end >= '0' && end <= '9') {
+						break
+					}
+				}
+
+				var gi int
+				if p+1 == end {
+					gi, _ = strconv.Atoi(string(pattern[end]))
+				} else {
+					gi, _ = strconv.Atoi(string(pattern[p+1 : end]))
+				}
+				gi--
+
+				if gi >= 0 && gi < len(g.groups) {
+					lNext, err = g.matchNext(line, g.groups[gi], l, 0)
+				} else {
+					return 0, fmt.Errorf("Invalid group reference \\%d", pattern[p+1:])
+				}
+			} else if line[l] == pattern[p+1] {
 				lNext = 1
 			}
+
 			break
 		}
 
@@ -129,7 +131,7 @@ func matchNext(line []byte, pattern string, l, p int) (int, error) {
 				}
 
 				if group[i-1] != '\\' {
-					lNext, err = matchNext(line, group[start:i], l, 0)
+					lNext, err = g.matchNext(line, group[start:i], l, 0)
 					start = i + 1
 				}
 
@@ -140,7 +142,11 @@ func matchNext(line []byte, pattern string, l, p int) (int, error) {
 		}
 
 		if lNext == 0 && err == nil {
-			lNext, err = matchNext(line, group, l, start)
+			lNext, err = g.matchNext(line, group, l, start)
+		}
+
+		if lNext > 0 {
+			g.groups = append(g.groups, string(line[l:l+lNext]))
 		}
 
 		break
@@ -169,7 +175,7 @@ func matchNext(line []byte, pattern string, l, p int) (int, error) {
 
 			var repeat int
 			for l+lNext < len(line) {
-				repeat, err = matchNext(line, pattern[p:p+pNext], l+lNext, 0)
+				repeat, err = g.matchNext(line, pattern[p:p+pNext], l+lNext, 0)
 				if repeat > 0 && err == nil {
 					lNext += repeat
 				} else {
@@ -195,7 +201,7 @@ func matchNext(line []byte, pattern string, l, p int) (int, error) {
 			return 0, nil
 		}
 
-		matched, err := matchNext(line, pattern, l+lNext, p+pNext)
+		matched, err := g.matchNext(line, pattern, l+lNext, p+pNext)
 		if matched > 0 {
 			return lNext + matched, err
 		}
@@ -209,12 +215,14 @@ func matchLine(line []byte, pattern string) (bool, error) {
 	var err error
 
 	if pattern[0] == '^' {
-		matched, err = matchNext(line, pattern, 0, 1)
+		var grep grepState
+		matched, err = grep.matchNext(line, pattern, 0, 1)
 		return matched > 0, err
 	}
 
 	for i := range line {
-		matched, err = matchNext(line, pattern, i, 0)
+		var grep grepState
+		matched, err = grep.matchNext(line, pattern, i, 0)
 		if matched > 0 || err != nil {
 			break
 		}
